@@ -42,8 +42,33 @@ run "secure_defaults" {
     error_message = "Tasks must remain private and failed deployments must roll back."
   }
   assert {
+    condition     = local.container_health_command[0] == "CMD" && local.container_health_command[1] == "wget"
+    error_message = "The health check must avoid shell evaluation."
+  }
+  assert {
     condition     = aws_vpc_security_group_ingress_rule.database.referenced_security_group_id == aws_security_group.service.id
     error_message = "Database ingress must be sourced from the service security group."
+  }
+}
+
+run "autoscaling_contract" {
+  command = plan
+  variables {
+    autoscaling = {
+      max_capacity       = 8
+      cpu_target         = 70
+      scale_in_cooldown  = 600
+      scale_out_cooldown = 30
+    }
+  }
+
+  assert {
+    condition     = aws_appautoscaling_target.service[0].min_capacity == 2 && aws_appautoscaling_target.service[0].max_capacity == 8
+    error_message = "Autoscaling must preserve the steady-state minimum and enforce the configured maximum."
+  }
+  assert {
+    condition     = aws_appautoscaling_policy.cpu[0].target_tracking_scaling_policy_configuration[0].target_value == 70
+    error_message = "Autoscaling must use the configured CPU target."
   }
 }
 
@@ -83,4 +108,21 @@ run "reject_missing_https_egress" {
     https_egress_security_group_ids = []
   }
   expect_failures = [aws_ecs_service.app]
+}
+
+run "reject_health_command_injection" {
+  command = plan
+  variables { health_check_path = "/health;id" }
+  expect_failures = [var.health_check_path]
+}
+
+run "reject_autoscaling_below_steady_state" {
+  command = plan
+  variables {
+    autoscaling = {
+      max_capacity = 1
+      cpu_target   = 70
+    }
+  }
+  expect_failures = [var.autoscaling]
 }

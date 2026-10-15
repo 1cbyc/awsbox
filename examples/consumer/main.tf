@@ -1,5 +1,12 @@
 terraform {
   required_version = ">= 1.11.0, < 2.0.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.64"
+    }
+  }
 }
 
 module "workload" {
@@ -18,8 +25,26 @@ module "workload" {
   database_multi_az = false
   desired_count     = 2
 
+  autoscaling = {
+    max_capacity = 6
+    cpu_target   = 70
+  }
+
   tags = {
     Owner      = "platform"
     CostCenter = "engineering"
   }
+}
+
+resource "aws_iam_role_policy" "read_orders" {
+  name = "read-orders"
+  role = module.workload.task_role_name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject"]
+      Resource = ["arn:aws:s3:::orders-staging/*"]
+    }]
+  })
 }

@@ -10,6 +10,7 @@ The module creates:
 
 - an immutable, encrypted ECR repository with scan-on-push and untagged-image expiry;
 - an ECS cluster, hardened ARM64 Fargate task, and circuit-breaker service in private subnets;
+- optional CPU target-tracking autoscaling with a fixed availability floor and bounded ceiling;
 - separate empty application and narrowly scoped execution roles;
 - CloudWatch application logs with bounded retention;
 - service and database security groups with source-specific rules; and
@@ -25,6 +26,8 @@ Build and scan the application image, push it using a unique tag, resolve its re
 
 The task receives database host metadata but no password. Attach a narrow policy to `task_role_arn` only if the application should read the RDS-managed secret. Prefer a separate migration task and least-privilege database roles over running permanently as the master user.
 
+Set `autoscaling` only after measuring a useful CPU target. `desired_count` remains the minimum and `max_capacity` limits cost exposure. The module exports the effective settings for plan review. The consumer example also shows how to attach one resource-scoped policy through `task_role_name`; replace that example permission with the application's actual AWS API needs.
+
 Before any apply, review the saved plan, expected monthly AWS costs, subnet egress design, RDS class and storage, Multi-AZ requirement, backup retention, alarms, and restore procedure. Run:
 
 ```text
@@ -37,10 +40,18 @@ terraform show review.tfplan
 
 The task drops Linux capabilities, uses numeric user `10001:10001`, and marks its root filesystem read-only. The selected image must support those constraints and provide `wget` for the local health command. ARM64 reduces the supported image set, so publish a matching manifest before deployment.
 
+The health path is passed to `wget` as an argument without a shell. It accepts only a bounded path made from URI unreserved characters, percent escapes, and slashes. Images must include `wget` as a directly executable program.
+
 HTTPS endpoint egress and database egress are explicit. DNS traffic is provided by the VPC resolver outside security-group filtering. Workloads needing other outbound destinations or ports must add reviewed rules in their environment rather than receiving unrestricted egress here.
 
 RDS uses a stable final snapshot identifier. A repeated destroy after a partial teardown may require an operator to preserve or rename the existing snapshot before retrying. This friction is intentional. See `docs/runbook.md` for deployment, rollback, restore, and teardown guidance.
 
 ## Validation
 
-`make ci` checks formatting, initializes without a backend, validates the root and consumer example, and runs native Terraform tests with a mocked AWS provider. Tests cover security and recovery defaults plus rejection of mutable images, one-subnet placement, and an invalid storage ceiling. Provider mocking proves configuration logic without credentials or paid resources. It is not evidence of a live AWS deployment.
+`make ci` checks formatting, initializes without a backend, validates the root and consumer example, and runs native Terraform tests with a mocked AWS provider. Tests cover security and recovery defaults, autoscaling, task-policy adoption, and rejection of mutable images, unsafe health paths, invalid scaling bounds, one-subnet placement, and an invalid storage ceiling. Provider mocking proves configuration logic without credentials or paid resources. It is not evidence of a live AWS deployment.
+
+## Compatibility and rollback
+
+Existing consumers keep autoscaling disabled because `autoscaling` defaults to null. The new outputs are additive. Health paths containing query strings, fragments, whitespace, or shell punctuation now fail validation; move parameters into application configuration before upgrading. Review a saved plan because enabling autoscaling creates an Application Auto Scaling target, policy, and managed CloudWatch alarms.
+
+To roll back the scaling change, set `autoscaling = null`, review the removal of its target and policy, and apply. ECS keeps `desired_count` as its steady-state count. Reverting the module source to the prior commit is safe only after any health path satisfies the earlier interface and the scaling resources have been removed through configuration rather than deleted manually.

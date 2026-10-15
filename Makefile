@@ -1,6 +1,6 @@
 TERRAFORM ?= terraform
 
-.PHONY: fmt check init validate test example ci
+.PHONY: fmt check init validate test example consumer-test ci
 
 fmt:
 	$(TERRAFORM) fmt -recursive
@@ -21,4 +21,7 @@ example:
 	$(TERRAFORM) -chdir=examples/consumer init -backend=false
 	$(TERRAFORM) -chdir=examples/consumer validate
 
-ci: check validate test example
+consumer-test: example
+	$(TERRAFORM) -chdir=examples/consumer test
+
+ci: check validate test consumer-test

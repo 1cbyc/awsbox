@@ -4,6 +4,7 @@ locals {
     Environment = var.environment
     ManagedBy   = "Terraform"
   })
+  container_health_command = ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${var.container_port}${var.health_check_path}"]
 }
 
 resource "aws_ecr_repository" "app" {
@@ -249,7 +250,7 @@ resource "aws_ecs_task_definition" "app" {
       initProcessEnabled = true
     }
     healthCheck = {
-      command     = ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:${var.container_port}${var.health_check_path} || exit 1"]
+      command     = local.container_health_command
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -323,4 +324,34 @@ resource "aws_ecs_service" "app" {
 
   depends_on = [aws_iam_role_policy.execution]
   tags       = local.tags
+}
+
+resource "aws_appautoscaling_target" "service" {
+  count = var.autoscaling == null ? 0 : 1
+
+  max_capacity       = var.autoscaling.max_capacity
+  min_capacity       = var.desired_count
+  resource_id        = "service/${aws_ecs_cluster.app.name}/${aws_ecs_service.app.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "cpu" {
+  count = var.autoscaling == null ? 0 : 1
+
+  name               = "${var.name}-cpu-target"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.service[0].resource_id
+  scalable_dimension = aws_appautoscaling_target.service[0].scalable_dimension
+  service_namespace  = aws_appautoscaling_target.service[0].service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    target_value       = var.autoscaling.cpu_target
+    scale_in_cooldown  = var.autoscaling.scale_in_cooldown
+    scale_out_cooldown = var.autoscaling.scale_out_cooldown
+
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+  }
 }

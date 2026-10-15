@@ -105,8 +105,8 @@ variable "health_check_path" {
   type        = string
   default     = "/health/live"
   validation {
-    condition     = startswith(var.health_check_path, "/") && !strcontains(var.health_check_path, " ")
-    error_message = "health_check_path must be an absolute path without spaces."
+    condition     = can(regex("^/[A-Za-z0-9._~%/-]{0,255}$", var.health_check_path))
+    error_message = "health_check_path must be an absolute URI path of at most 256 characters without whitespace, query strings, fragments, or shell metacharacters."
   }
 }
 
@@ -137,6 +137,31 @@ variable "desired_count" {
   validation {
     condition     = var.desired_count >= 2 && var.desired_count <= 20 && floor(var.desired_count) == var.desired_count
     error_message = "desired_count must be a whole number from 2 through 20."
+  }
+}
+
+variable "autoscaling" {
+  description = "Optional CPU target-tracking settings. The minimum remains desired_count so availability is not reduced."
+  type = object({
+    max_capacity       = number
+    cpu_target         = number
+    scale_in_cooldown  = optional(number, 300)
+    scale_out_cooldown = optional(number, 60)
+  })
+  default  = null
+  nullable = true
+
+  validation {
+    condition = var.autoscaling == null || try(
+      var.autoscaling.max_capacity >= var.desired_count &&
+      var.autoscaling.max_capacity <= 50 &&
+      floor(var.autoscaling.max_capacity) == var.autoscaling.max_capacity &&
+      var.autoscaling.cpu_target >= 10 && var.autoscaling.cpu_target <= 90 &&
+      var.autoscaling.scale_in_cooldown >= 0 && var.autoscaling.scale_in_cooldown <= 3600 &&
+      var.autoscaling.scale_out_cooldown >= 0 && var.autoscaling.scale_out_cooldown <= 3600,
+      false
+    )
+    error_message = "autoscaling requires a whole max_capacity from desired_count through 50, cpu_target from 10 through 90, and cooldowns from 0 through 3600 seconds."
   }
 }
 

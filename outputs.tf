@@ -13,9 +13,25 @@ output "service_name" {
   value       = aws_ecs_service.app.name
 }
 
+output "autoscaling_configuration" {
+  description = "Effective target-tracking settings, or null when service autoscaling is disabled."
+  value = var.autoscaling == null ? null : {
+    min_capacity       = var.desired_count
+    max_capacity       = var.autoscaling.max_capacity
+    cpu_target         = var.autoscaling.cpu_target
+    scale_in_cooldown  = var.autoscaling.scale_in_cooldown
+    scale_out_cooldown = var.autoscaling.scale_out_cooldown
+  }
+}
+
 output "task_role_arn" {
   description = "Application task role ARN to extend with narrow workload permissions."
   value       = aws_iam_role.task.arn
+}
+
+output "task_role_name" {
+  description = "Application task role name for narrowly scoped consumer-managed inline policies."
+  value       = aws_iam_role.task.name
 }
 
 output "database_endpoint" {
